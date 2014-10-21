@@ -13,25 +13,29 @@
 
 (def xsf (XMLSignatureFactory/getInstance "DOM"))
 
-(def r (.newReference xsf
-                      ""
-                      (.newDigestMethod xsf DigestMethod/SHA1 nil)
-                      [(.newTransform xsf Transform/ENVELOPED nil)]
-                      nil
-                      nil))
+(defn make-reference [uri-str]
+  (.newReference xsf
+                 uri-str
+                 (.newDigestMethod xsf DigestMethod/SHA1 nil)
+                 [(.newTransform xsf Transform/ENVELOPED nil)
+                  ;;(.newTransform xsf CanonicalizationMethod/EXCLUSIVE nil)
+                  ]
+                 nil
+                 nil))
 
-(def si (.newSignedInfo xsf
-                        (.newCanonicalizationMethod
-                         xsf
-                         CanonicalizationMethod/INCLUSIVE
-                         nil)
-                        (.newSignatureMethod
-                         xsf
-                         SignatureMethod/RSA_SHA1
-                         nil)
-                        [r]))
+(defn make-signed-info [uri-str]
+  (.newSignedInfo xsf
+                  (.newCanonicalizationMethod
+                   xsf
+                   CanonicalizationMethod/EXCLUSIVE
+                   nil)
+                  (.newSignatureMethod
+                   xsf
+                   SignatureMethod/RSA_SHA1
+                   nil)
+                  [(make-reference uri-str)]))
 
-(def sig (.newXMLSignature xsf si nil))
+(defn sig [uri-str] (.newXMLSignature xsf (make-signed-info uri-str) nil))
 
-(defn sign! [element]
-  (.sign sig (DOMSignContext. keys/private-key element)))
+(defn sign! [element uri-str]
+  (.sign (sig uri-str) (DOMSignContext. keys/private-key element)))

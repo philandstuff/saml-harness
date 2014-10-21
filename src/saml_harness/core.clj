@@ -9,7 +9,7 @@
            [javax.xml.transform.stream StreamResult]
            [org.joda.time DateTime]
            [org.opensaml Configuration]
-           [org.opensaml.saml2.core AuthnRequest]))
+           [org.opensaml.saml2.core AuthnRequest Issuer NameIDType]))
 
 ;xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
 ;xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
@@ -19,16 +19,27 @@
 
 (def saml-bf (Configuration/getBuilderFactory))
 
+(defn make-issuer []
+  (doto (-> (.getBuilder saml-bf Issuer/DEFAULT_ELEMENT_NAME)
+            (.buildObject))
+    (.setFormat NameIDType/ENTITY)
+    (.setValue "http://www.test-rp.gov.uk/SAML2/MD")))
+
 (defn make-authn-request []
   (doto (-> (.getBuilder saml-bf AuthnRequest/DEFAULT_ELEMENT_NAME)
             (.buildObject))
+    (.setDestination "http://localhost:50220/SAML2/SSO")
+    (.setForceAuthn false)
+    (.setID (str "_" (java.util.UUID/randomUUID)))
+    (.setIssuer (make-issuer))
     (.setIssueInstant (DateTime.))
-    (.setID "2")))
+    (.setProtocolBinding "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST")
+    ))
 
 (def trans (.newTransformer (TransformerFactory/newInstance)))
 
 (defn saml->elem [samlobj]
-  (let [req        (make-authn-request)
+  (let [req        samlobj
         marshaller (.getMarshaller (Configuration/getMarshallerFactory) req)]
     (.marshall marshaller req)))
 
@@ -54,6 +65,14 @@
   (slurp (:body (fetch-metadata)))
   )
 
+(defn signed-authn-req [authn-req]
+  (let [xml-authn-req-elem (saml->elem authn-req)
+        ref-uri (str "#" (.getID authn-req))
+        ]
+    (.setIdAttribute xml-authn-req-elem "ID" true)
+    (java/sign! xml-authn-req-elem ref-uri)
+    xml-authn-req-elem))
+
 (defn build-saml-request-post-body [^String request]
   (into-array Byte/TYPE (concat
                          ;TODO: Charset
@@ -73,7 +92,21 @@
 (comment
   (update-in (post-saml-request (str/join (concat "<?xml version=\"1.0\" encoding=\"UTF-8\"?><xml>" (repeat 1500 "x") "</xml>"))) [:body] slurp)
 
+  (let [unsigned-req (make-authn-request)
+        _ (println (-> unsigned-req saml->elem elem->string))
+        req (signed-authn-req unsigned-req)
+        strreq (elem->string req)]
+    (println strreq)
+    )
+
+  (let [req (signed-authn-req (make-authn-request))
+        strreq (elem->string req)]
+    (println strreq)
+    (post-saml-request strreq))
+
   (let [req (saml->elem (make-authn-request))]
     (java/sign! req)
-    (post-saml-request (elem->string req)))
+    (println (elem->string req))
+    )
+
   )
